@@ -1,6 +1,8 @@
-![Concentric Sky](https://concentricsky.com/media/uploads/images/csky_logo.jpg)
+## About this fork
 
-## Django Tastypie Swagger
+This project is a fork of the original Django-Tastypie-Swagger by Concentric Sky, Inc, licensed under the Apache License 2.0. The original project is no longer maintained.
+
+This fork updates the project for Django 4.2 compatibility and introduces new features and fixes to ensure continued usability.
 
 **django-tastypie-swagger** is a small adapter library to construct [Swagger](http://swagger.wordnik.com/) documentation from [Tastypie](https://django-tastypie.readthedocs.org) resources.
 
