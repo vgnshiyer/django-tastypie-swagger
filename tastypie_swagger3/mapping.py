@@ -1,16 +1,9 @@
 import datetime
 import logging
 
-from django.db.models.sql.constants import QUERY_TERMS
-
-try:
-    from django.utils.encoding import force_text
-except ImportError:
-    from django.utils.encoding import force_text as force_text
-
-
+from django.utils.encoding import force_str as force_text
+from django.core.exceptions import FieldDoesNotExist
 from tastypie import fields
-
 from .utils import trailing_slash_or_none, urljoin_forced
 
 logger = logging.getLogger(__name__)
@@ -93,7 +86,7 @@ class ResourceSwaggerMapping(object):
         Get a basic summary string for a single operation
         """
         key = '%s-%s' % (method.lower(), detail and 'detail' or 'list')
-        plural = not detail and method is 'get'
+        plural = not detail and method == 'get'
         verbose_name = self.get_resource_verbose_name(plural=plural)
         summary = self.OPERATION_SUMMARIES.get(key, '')
         if summary:
@@ -123,7 +116,6 @@ class ResourceSwaggerMapping(object):
             'description': description,
         }
 
-
         # TODO make use of this to Implement the allowable_values of swagger
         # (https://github.com/wordnik/swagger-core/wiki/Datatypes) at the field level.
         # This could be added to the meta value of the resource to specify enum-like or range data on a field.
@@ -139,7 +131,7 @@ class ResourceSwaggerMapping(object):
                 parameters.append(self.build_parameter(
                     name=name,
                     dataType=field['type'],
-                    required=field['nullable'],
+                    required=not field['blank'],
                     description=force_text(field['help_text']),
                 ))
         return parameters
@@ -160,7 +152,7 @@ class ResourceSwaggerMapping(object):
             'name': "order_by",
             'dataType': "String",
             'required': False,
-            'description': unicode("Orders the result set based on the selection. "
+            'description': str("Orders the result set based on the selection. "
                                    "Ascending order by default, prepending the '-' "
                                    "sign change the sorting order to descending"),
             'allowableValues': {
@@ -204,23 +196,14 @@ class ResourceSwaggerMapping(object):
                             has_related_resource = hasattr(self.resource.fields[name], 'get_related_resource')
 
                         if not has_related_resource:
-                            #This code has been mostly sucked from the tastypie lib
-                            if getattr(self.resource._meta, 'queryset', None) is not None:
-                                # Get the possible query terms from the current QuerySet.
-                                if hasattr(self.resource._meta.queryset.query.query_terms, 'keys'):
-                                    # Django 1.4 & below compatibility.
-                                    field = self.resource._meta.queryset.query.query_terms.keys()
-                                else:
-                                    # Django 1.5+.
-                                    field = self.resource._meta.queryset.query.query_terms
-                            else:
-                                if hasattr(QUERY_TERMS, 'keys'):
-                                    # Django 1.4 & below compatibility.
-                                    field = QUERY_TERMS.keys()
-                                else:
-                                    # Django 1.5+.
-                                    field = QUERY_TERMS
-
+                            try:
+                                django_field = self.resource._meta.object_class._meta.get_field(name)
+                            except FieldDoesNotExist:
+                                # user configured a field that does not exist on the model
+                                continue
+                            
+                            query_terms = django_field.get_lookups()
+                            field = query_terms.keys()
                         else: # Show all params from related model
                             # Add a subset of filter only foreign-key compatible on the relation itself.
                             # We assume foreign keys are only int based.
@@ -304,7 +287,7 @@ class ResourceSwaggerMapping(object):
                                   name=name,
                                   dataType=field['dataType'],
                                   required=field['required'],
-                                  description=unicode(field['description'])
+                                  description=str(field['description'])
                                   ))
 
 
@@ -332,7 +315,7 @@ class ResourceSwaggerMapping(object):
         return {
             'summary': self.get_operation_summary(detail=False, method=method),
             'httpMethod': method.upper(),
-            'parameters': self.build_parameters_for_list(method=method),
+            'parameters': [],
             'responseClass': 'ListView' if method.upper() == 'GET' else self.resource_name,
             'nickname': '%s_list' % self.resource_name,
             'notes': self.resource.__doc__,
@@ -350,7 +333,7 @@ class ResourceSwaggerMapping(object):
                 # is not set.
                 fields=extra_action.get('fields', {}),
                 resource_type=extra_action.get("resource_type", "view")),
-            'responseClass': extra_action.get("responseClass", "Object"),
+            'responseClass': 'Object', #TODO this should be extended to allow the creation of a custom object.
             'nickname': extra_action['name'],
             'notes': extra_action.get('notes', ''),
         }
@@ -413,14 +396,14 @@ class ResourceSwaggerMapping(object):
         apis.extend(self.build_extra_apis())
         return apis
 
-    def build_property(self, name, type, description="", required=False):
+    def build_property(self, name, type, description=""):
         prop = {
             name: {
                 'type': type,
                 'description': description,
-                'required':required
             }
         }
+
         if type == 'List':
             prop[name]['items'] = {'$ref': name}
 
@@ -448,9 +431,8 @@ class ResourceSwaggerMapping(object):
                     name,
                     field.get('type'),
                     # note: 'help_text' is a Django proxy which must be wrapped
-                    # in unicode *specifically* to get the actual help text.
+                    # in str *specifically* to get the actual help text.
                     force_text(field.get('help_text', '')),
-                    field.get('nullable')
                 )
             )
         return properties
@@ -529,6 +511,7 @@ class ResourceSwaggerMapping(object):
         return models
 
     def build_models(self):
+        #TODO this should be extended to allow the creation of a custom objects for extra_actions.
         models = {}
 
         # Take care of the list particular schema with meta and so on.
@@ -561,16 +544,5 @@ class ResourceSwaggerMapping(object):
                 id=self.resource_name
             )
         )
-
-        if hasattr(self.resource._meta, 'extra_actions'):
-            for extra_action in self.resource._meta.extra_actions:
-                if "model" in extra_action:
-                    models.update(
-                        self.build_model(
-                        resource_name=extra_action['model']['id'],
-                        properties=extra_action['model']['properties'],
-                        id=extra_action['model']['id']
-                        )
-                    )
-
         return models
+

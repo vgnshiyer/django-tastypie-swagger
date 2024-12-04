@@ -4,7 +4,7 @@ import json
 from django.views.generic import TemplateView
 from django.http import HttpResponse, Http404
 from django.core.exceptions import ImproperlyConfigured
-from django.core.urlresolvers import reverse
+from django.urls import reverse
 
 import tastypie
 
@@ -140,3 +140,4 @@ class SchemaView(TastypieApiMixin, SwaggerApiDataMixin, JSONView):
             'resourcePath': '/{0}'.format(resource._meta.resource_name)
         })
         return context
+
